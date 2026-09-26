@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shadowing</title>
+<style>
+  :root {
+    --bg: #faf8f5; --fg: #1d1b19; --muted: #7a746c; --card: #fff; --line: #e6e1da;
+    --accent: #c2410c; --accent-soft: #fdeee4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171614; --fg: #ece8e2; --muted: #9a938a; --card: #211f1c; --line: #34302b;
+            --accent: #fb923c; --accent-soft: #3a2518; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 18px; margin: 0 0 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=text] { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--line);
+                     border-radius: 8px; background: var(--card); color: var(--fg); font: inherit; }
+  button, select { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+                   background: var(--card); color: var(--fg); cursor: pointer; }
+  .filebtn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  .filebtn:hover { border-color: var(--accent); }
+  .filebtn.busy { opacity: .5; pointer-events: none; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  progress { width: 100%; height: 6px; accent-color: var(--accent); }
+  #library a { display: block; padding: 6px 0; color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
+  #library a:last-child { border-bottom: 0; }
+  #library a:hover { color: var(--accent); }
+  #current { font-size: 28px; line-height: 1.6; min-height: 3.2em; margin: 8px 0 16px; text-align: center;
+             display: flex; align-items: center; justify-content: center; }
+  #current.hidden-text { color: transparent; text-shadow: 0 0 14px var(--muted); user-select: none; }
+  .controls { justify-content: center; }
+  .controls button { min-width: 64px; font-size: 18px; }
+  .settings { justify-content: center; margin-top: 12px; gap: 16px; font-size: 13px; }
+  .settings label { display: flex; gap: 6px; align-items: center; }
+  .settings select, .settings input[type=number] { padding: 4px 6px; font-size: 13px; }
+  .settings input[type=number] { width: 56px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+  #status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--line); margin-right: 6px; vertical-align: middle; }
+  #status-dot.playing { background: var(--accent); }
+  #status-dot.shadow { background: #16a34a; }
+  ol#list { padding-left: 0; list-style: none; margin: 0; max-height: 45vh; overflow: auto; }
+  ol#list li { padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; gap: 10px; }
+  ol#list li .n { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 2.5em; text-align: right; }
+  ol#list li:hover { background: var(--bg); }
+  ol#list li.active { background: var(--accent-soft); }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>シャドーイング · Shadowing</h1>
+
+  <form id="form" class="row">
+    <input type="text" id="url" placeholder="YouTube URL (e.g. JLPT N4 listening)" autocomplete="off">
+    <button class="primary" id="go">Transcribe</button>
+    <span class="muted">or</span>
+    <label class="filebtn" id="filebtn">Open file…
+      <input type="file" id="file" accept="video/*,audio/*,.mkv" hidden>
+    </label>
+  </form>
+
+  <div id="job" class="card hidden">
+    <div class="row" style="justify-content:space-between"><b id="job-title">…</b><span class="muted" id="job-status"></span></div>
+    <progress id="job-progress" max="1" value="0"></progress>
+    <div class="muted" id="job-preview"></div>
+  </div>
+
+  <div id="player" class="card hidden">
+    <div class="row" style="justify-content:space-between">
+      <b id="title"></b>
+      <span class="muted"><span id="status-dot"></span><span id="counter"></span></span>
+    </div>
+    <div id="current"></div>
+    <div class="row controls">
+      <button id="prev" title="Previous (←)">⏮</button>
+      <button id="play" class="primary" title="Play / replay (Space)">▶</button>
+      <button id="next" title="Next (→ / Enter)">⏭</button>
+    </div>
+    <div class="row settings">
+      <label>Speed
+        <select id="rate">
+          <option>0.5</option><option>0.6</option><option>0.7</option><option>0.75</option>
+          <option>0.8</option><option>0.9</option><option selected>1</option><option>1.1</option><option>1.25</option>
+        </select>
+      </label>
+      <label>Repeat <input type="number" id="repeat" min="1" max="10" value="1"></label>
+      <label><input type="checkbox" id="auto"> Auto-advance</label>
+      <label title="Pause after each playback = sentence length × this">Shadow pause ×<input type="number" id="pause" min="0" max="5" step="0.25" value="1.25"></label>
+      <label><input type="checkbox" id="showtext" checked> Show text <kbd>T</kbd></label>
+    </div>
+    <p class="muted" style="text-align:center;margin:12px 0 0">
+      <kbd>Space</kbd> play/replay · <kbd>←</kbd>/<kbd>→</kbd> prev/next · <kbd>↑</kbd>/<kbd>↓</kbd> speed · <kbd>Esc</kbd> stop
+    </p>
+    <audio id="audio" preload="auto"></audio>
+  </div>
+
+  <div id="list-card" class="card hidden"><ol id="list"></ol></div>
+
+  <div class="card">
+    <div class="muted" style="margin-bottom:6px">Library</div>
+    <div id="library" class="muted">Nothing transcribed yet.</div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const audio = $("audio");
+const PAD_BEFORE = 0.12, PAD_AFTER = 0.25; // whisper timestamps are a little tight
+
+let data = null, idx = 0;
+let token = 0;           // bumps on every user action; stale timers/loops check it and bail
+let pendingTimer = null;
+
+// ---------- settings persistence ----------
+const SETTINGS = ["rate", "repeat", "auto", "pause", "showtext"];
+function saveSettings() {
+  const s = {};
+  for (const k of SETTINGS) s[k] = $(k).type === "checkbox" ? $(k).checked : $(k).value;
+  try { localStorage.setItem("shadow-settings", JSON.stringify(s)); } catch {}
+}
+function loadSettings() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem("shadow-settings") || "{}"); } catch {}
+  for (const k of SETTINGS) if (k in s) $(k).type === "checkbox" ? ($(k).checked = s[k]) : ($(k).value = s[k]);
+}
+loadSettings();
+for (const k of SETTINGS) $(k).addEventListener("change", () => { saveSettings(); render(); });
+
+// ---------- transcription jobs ----------
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const url = $("url").value.trim();
+  if (!url) return;
+  $("go").disabled = true;
+  const job = await (await fetch("/api/jobs", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }),
+  })).json();
+  $("job").classList.remove("hidden");
+  poll(job.id);
+});
+
+$("file").addEventListener("change", () => {
+  const file = $("file").files[0];
+  $("file").value = "";
+  if (!file) return;
+  $("filebtn").classList.add("busy");
+  $("job").classList.remove("hidden");
+  $("job-title").textContent = file.name;
+  $("job-preview").textContent = "";
+  // XHR rather than fetch, for upload progress on big video files.
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `/api/upload?name=${encodeURIComponent(file.name)}`);
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    $("job-status").textContent = `uploading ${Math.round((e.loaded / e.total) * 100)}%`;
+    $("job-progress").value = e.loaded / e.total;
+  };
+  xhr.onload = () => {
+    if (xhr.status !== 200) return uploadFailed(`upload failed (${xhr.status})`);
+    poll(JSON.parse(xhr.responseText).id);
+  };
+  xhr.onerror = () => uploadFailed("upload failed");
+  xhr.send(file);
+});
+
+function uploadFailed(msg) {
+  $("job-status").textContent = "error";
+  $("job-preview").textContent = msg;
+  $("filebtn").classList.remove("busy");
+}
+
+async function poll(id) {
+  const j = await (await fetch(`/api/jobs/${id}`)).json();
+  $("job-title").textContent = j.title || "…";
+  $("job-status").textContent = j.status + (["transcribing", "downloading"].includes(j.status) ? ` ${Math.round(j.progress * 100)}%` : "");
+  $("job-progress").value = j.progress || 0;
+  $("job-preview").textContent = j.preview || j.error || "";
+  if (j.status === "done") {
+    $("go").disabled = false;
+    $("filebtn").classList.remove("busy");
+    $("job").classList.add("hidden");
+    loadLibrary();
+    openVideo(j.video_id);
+  } else if (j.status === "error") {
+    $("go").disabled = false;
+    $("filebtn").classList.remove("busy");
+  } else {
+    setTimeout(() => poll(id), 1000);
+  }
+}
+
+async function loadLibrary() {
+  const items = await (await fetch("/api/library")).json();
+  if (!items.length) return;
+  $("library").innerHTML = "";
+  for (const it of items) {
+    const a = document.createElement("a");
+    a.href = `#${it.video_id}`;
+    a.textContent = `${it.title} (${it.count} sentences)`;
+    $("library").append(a);
+  }
+}
+
+// ---------- player ----------
+async function openVideo(vid) {
+  stop();
+  data = await (await fetch(`/api/transcript/${vid}`)).json();
+  audio.src = `/media/${vid}`;
+  let saved = 0;
+  try { saved = +localStorage.getItem(`shadow-pos-${vid}`) || 0; } catch {}
+  idx = Math.min(saved, data.sentences.length - 1);
+  $("title").textContent = data.title;
+  $("player").classList.remove("hidden");
+  $("list-card").classList.remove("hidden");
+  const list = $("list");
+  list.innerHTML = "";
+  data.sentences.forEach((s, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="n">${i + 1}</span><span></span>`;
+    li.lastChild.textContent = s.text;
+    li.onclick = () => go(i);
+    list.append(li);
+  });
+  if (location.hash.slice(1) !== vid) history.replaceState(null, "", `#${vid}`);
+  render();
+}
+
+function render() {
+  if (!data) return;
+  const s = data.sentences[idx];
+  $("current").textContent = s ? s.text : "";
+  $("current").classList.toggle("hidden-text", !$("showtext").checked);
+  $("counter").textContent = `${idx + 1} / ${data.sentences.length}`;
+  $("list").querySelectorAll("li").forEach((li, i) => li.classList.toggle("active", i === idx));
+  $("list").children[idx]?.scrollIntoView({ block: "nearest" });
+  try { localStorage.setItem(`shadow-pos-${data.video_id}`, idx); } catch {}
+}
+
+function setDot(state) { $("status-dot").className = state || ""; }
+
+function stop() {
+  token++;
+  clearTimeout(pendingTimer);
+  audio.pause();
+  setDot();
+}
+
+function go(i) {
+  if (!data) return;
+  idx = Math.max(0, Math.min(i, data.sentences.length - 1));
+  render();
+  play();
+}
+
+// Play the current sentence `repeat` times, leaving a shadowing pause after each;
+// then optionally advance to the next sentence.
+async function play() {
+  stop();
+  const my = token;
+  const s = data.sentences[idx];
+  const rate = +$("rate").value;
+  const repeats = Math.max(1, +$("repeat").value || 1);
+  const pauseMs = ((s.end - s.start) / rate) * (+$("pause").value || 0) * 1000;
+
+  for (let r = 0; r < repeats; r++) {
+    if (!(await playSegment(s, rate, my))) return;
+    const lastOfManual = r === repeats - 1 && !$("auto").checked;
+    if (lastOfManual) break; // manual mode: just stop and let the user shadow
+    setDot("shadow");
+    if (!(await wait(pauseMs, my))) return;
+  }
+  setDot();
+  if ($("auto").checked && idx < data.sentences.length - 1) {
+    idx++;
+    render();
+    play();
+  }
+}
+
+function playSegment(s, rate, my) {
+  return new Promise((resolve) => {
+    audio.playbackRate = rate;
+    audio.currentTime = Math.max(0, s.start - PAD_BEFORE);
+    const stopAt = s.end + PAD_AFTER;
+    setDot("playing");
+    audio.play().catch(() => resolve(false));
+    const tick = () => {
+      if (token !== my) return resolve(false);
+      if (audio.currentTime >= stopAt || audio.ended) {
+        audio.pause();
+        setDot();
+        return resolve(true);
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function wait(ms, my) {
+  return new Promise((resolve) => {
+    pendingTimer = setTimeout(() => resolve(token === my), ms);
+  });
+}
+
+function bumpRate(dir) {
+  const sel = $("rate");
+  sel.selectedIndex = Math.max(0, Math.min(sel.options.length - 1, sel.selectedIndex + dir));
+  saveSettings();
+}
+
+$("play").onclick = () => play();
+$("next").onclick = () => go(idx + 1);
+$("prev").onclick = () => go(idx - 1);
+
+// Don't let clicked controls keep focus, or Space/arrows would also act on them.
+document.addEventListener("click", (e) => { if (e.target.closest("button")) e.target.closest("button").blur(); });
+document.addEventListener("change", (e) => { if (e.target.matches("select, input[type=checkbox]")) e.target.blur(); });
+
+document.addEventListener("keydown", (e) => {
+  if (!data || e.target.matches("input[type=text], input[type=number], select")) return;
+  const k = e.key;
+  if (k === " ") { e.preventDefault(); play(); }
+  else if (k === "ArrowRight" || k === "Enter") { e.preventDefault(); go(idx + 1); }
+  else if (k === "ArrowLeft") { e.preventDefault(); go(idx - 1); }
+  else if (k === "ArrowUp") { e.preventDefault(); bumpRate(1); }
+  else if (k === "ArrowDown") { e.preventDefault(); bumpRate(-1); }
+  else if (k === "Escape") stop();
+  else if (k === "t" || k === "T") { $("showtext").checked = !$("showtext").checked; saveSettings(); render(); }
+});
+
+window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== data?.video_id) openVideo(v); });
+loadLibrary();
+if (location.hash.length > 1) openVideo(location.hash.slice(1)).catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+services:
+  shadowing:
+    build: .
+    ports:
+      # Change to "8000:8000" to reach it from other devices on your LAN.
+      - "127.0.0.1:8000:8000"
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+    volumes:
+      - ./data:/app/data   # downloaded audio + transcripts
+      - models:/cache      # Whisper models, so they're only downloaded once
+    restart: unless-stopped
+
+volumes:
+  models:

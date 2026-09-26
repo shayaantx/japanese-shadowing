@@ -1,0 +1,14 @@
+[project]
+name = "shadowing"
+version = "0.1.0"
+description = "Local YouTube -> Japanese transcript -> sentence-by-sentence shadowing player"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "yt-dlp>=2025.1.1",
+    "faster-whisper>=1.1",
+]
+
+[tool.uv]
+package = false

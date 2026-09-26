@@ -16,7 +16,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 15px/1.5 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
-  main { max-width: 820px; margin: 0 auto; padding: 24px 16px 80px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 80px; }
   h1 { font-size: 18px; margin: 0 0 16px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   input[type=text] { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--line);
@@ -52,6 +52,27 @@
   ol#list li:hover { background: var(--bg); }
   ol#list li.active { background: var(--accent-soft); }
   kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+  #workspace { display: grid; gap: 0 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) {
+    #workspace { grid-template-columns: minmax(0, 1fr) 380px; }
+    #panel { position: sticky; top: 0; max-height: calc(100vh - 16px); overflow: auto; }
+  }
+  #panel h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 16px 0 8px; }
+  #panel h2:first-child { margin-top: 0; }
+  #panel-body.blurred { filter: blur(6px); user-select: none; pointer-events: none; }
+  #furi { font-size: 22px; line-height: 2.1; }
+  rt { font-size: 55%; color: var(--muted); }
+  .word { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .word:last-child { border-bottom: 0; }
+  .w-base { font-size: 17px; font-weight: 600; }
+  .w-read { color: var(--muted); margin-left: 6px; }
+  .w-pos { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+  .w-gloss { font-size: 13px; margin-top: 2px; }
+  .g { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .g:last-child { border-bottom: 0; }
+  .lvl { font-size: 11px; background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+  .err { color: #dc2626; font-size: 13px; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; font-size: 12px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -74,7 +95,9 @@
     <div class="muted" id="job-preview"></div>
   </div>
 
-  <div id="player" class="card hidden">
+  <div id="workspace" class="hidden">
+  <div>
+  <div id="player" class="card">
     <div class="row" style="justify-content:space-between">
       <b id="title"></b>
       <span class="muted"><span id="status-dot"></span><span id="counter"></span></span>
@@ -96,14 +119,32 @@
       <label><input type="checkbox" id="auto"> Auto-advance</label>
       <label title="Pause after each playback = sentence length × this">Shadow pause ×<input type="number" id="pause" min="0" max="5" step="0.25" value="1.25"></label>
       <label><input type="checkbox" id="showtext" checked> Show text <kbd>T</kbd></label>
+      <label><input type="checkbox" id="furigana"> Furigana <kbd>F</kbd></label>
     </div>
     <p class="muted" style="text-align:center;margin:12px 0 0">
-      <kbd>Space</kbd> play/replay · <kbd>←</kbd>/<kbd>→</kbd> prev/next · <kbd>↑</kbd>/<kbd>↓</kbd> speed · <kbd>Esc</kbd> stop
+      <kbd>Space</kbd> play/replay · <kbd>←</kbd>/<kbd>→</kbd> prev/next · <kbd>↑</kbd>/<kbd>↓</kbd> speed · <kbd>Esc</kbd> stop · <kbd>E</kbd> explain
     </p>
     <audio id="audio" preload="auto"></audio>
   </div>
 
-  <div id="list-card" class="card hidden"><ol id="list"></ol></div>
+  <div id="list-card" class="card"><ol id="list"></ol></div>
+  </div>
+
+  <aside id="panel" class="card">
+    <div id="panel-body">
+      <h2>Sentence</h2>
+      <div id="furi"></div>
+      <h2>Words</h2>
+      <div id="dict-note" class="muted hidden"></div>
+      <div id="words"></div>
+      <div id="explain-section" class="hidden">
+        <h2>Grammar</h2>
+        <button id="explain-btn">Explain grammar</button>
+        <div id="explain-out"></div>
+      </div>
+    </div>
+  </aside>
+  </div>
 
   <div class="card">
     <div class="muted" style="margin-bottom:6px">Library</div>
@@ -121,7 +162,7 @@ let token = 0;           // bumps on every user action; stale timers/loops check
 let pendingTimer = null;
 
 // ---------- settings persistence ----------
-const SETTINGS = ["rate", "repeat", "auto", "pause", "showtext"];
+const SETTINGS = ["rate", "repeat", "auto", "pause", "showtext", "furigana"];
 function saveSettings() {
   const s = {};
   for (const k of SETTINGS) s[k] = $(k).type === "checkbox" ? $(k).checked : $(k).value;
@@ -219,8 +260,7 @@ async function openVideo(vid) {
   try { saved = +localStorage.getItem(`shadow-pos-${vid}`) || 0; } catch {}
   idx = Math.min(saved, data.sentences.length - 1);
   $("title").textContent = data.title;
-  $("player").classList.remove("hidden");
-  $("list-card").classList.remove("hidden");
+  $("workspace").classList.remove("hidden");
   const list = $("list");
   list.innerHTML = "";
   data.sentences.forEach((s, i) => {
@@ -237,13 +277,137 @@ async function openVideo(vid) {
 function render() {
   if (!data) return;
   const s = data.sentences[idx];
-  $("current").textContent = s ? s.text : "";
+  const a = analyses.get(`${data.video_id}:${idx}`);
+  $("current").replaceChildren(...($("furigana").checked && a ? rubyNodes(a.furigana) : [s ? s.text : ""]));
   $("current").classList.toggle("hidden-text", !$("showtext").checked);
+  $("panel-body").classList.toggle("blurred", !$("showtext").checked);
+  loadPanel();
   $("counter").textContent = `${idx + 1} / ${data.sentences.length}`;
   $("list").querySelectorAll("li").forEach((li, i) => li.classList.toggle("active", i === idx));
   $("list").children[idx]?.scrollIntoView({ block: "nearest" });
   try { localStorage.setItem(`shadow-pos-${data.video_id}`, idx); } catch {}
 }
+
+// ---------- side panel: dictionary breakdown + grammar explanations ----------
+let cfg = {};
+const analyses = new Map();      // "vid:idx" -> analysis
+let panelKey = null;
+
+fetch("/api/config").then((r) => r.json()).then((c) => { cfg = c; panelKey = null; render(); });
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function rubyNodes(segs) {
+  return segs.map(([t, r]) => {
+    if (!r) return document.createTextNode(t);
+    const ruby = el("ruby", null, t);
+    ruby.append(el("rt", null, r));
+    return ruby;
+  });
+}
+
+async function loadPanel() {
+  const key = `${data.video_id}:${idx}`;
+  if (key === panelKey) return;
+  panelKey = key;
+  const i = idx;
+  $("furi").textContent = data.sentences[i].text;
+  $("words").replaceChildren();
+  $("explain-out").replaceChildren();
+  $("explain-section").classList.toggle("hidden", !cfg.explain || cfg.explain === "off");
+  $("explain-btn").textContent = "Explain grammar";
+  $("explain-btn").disabled = false;
+
+  let a = analyses.get(key);
+  if (!a) {
+    const r = await fetch(`/api/analyze/${data.video_id}/${i}`);
+    if (!r.ok) return;
+    a = await r.json();
+    analyses.set(key, a);
+  }
+  if (panelKey !== key) return;
+  if ($("furigana").checked) $("current").replaceChildren(...rubyNodes(a.furigana));
+  $("furi").replaceChildren(...rubyNodes(a.furigana));
+  renderWords(a);
+
+  const ex = await fetch(`/api/explain/${data.video_id}/${i}`);
+  if (ex.ok && panelKey === key) renderExplanation(await ex.json());
+}
+
+function renderWords(a) {
+  const notes = {
+    missing: "No dictionary loaded: add the JMdict file to data/dict/ for English meanings (see README).",
+    building: "Building the dictionary index… meanings will appear shortly.",
+  };
+  const note = notes[a.dictionary] || (a.dictionary.startsWith("error") ? `Dictionary ${a.dictionary}` : "");
+  $("dict-note").textContent = note;
+  $("dict-note").classList.toggle("hidden", !note);
+  if (a.dictionary === "building") setTimeout(() => { analyses.delete(panelKey); panelKey = null; render(); }, 5000);
+
+  $("words").replaceChildren(...a.words.map((w) => {
+    const row = el("div", "word");
+    const head = el("div");
+    head.append(el("span", "w-base", w.base));
+    if (w.reading) head.append(el("span", "w-read", w.reading));
+    head.append(el("span", "w-pos", w.pos));
+    row.append(head);
+    if (w.dict) row.append(el("div", "w-gloss", w.dict.senses.map((g, n) => `${n + 1}. ${g.join("; ")}`).join("   ")));
+    return row;
+  }));
+}
+
+function renderExplanation(x) {
+  const out = [];
+  out.push(el("p", null, x.translation));
+  for (const g of x.grammar) {
+    const d = el("div", "g");
+    const h = el("div");
+    h.append(el("b", null, g.pattern));
+    if (g.level && g.level !== "-") h.append(el("span", "lvl", g.level));
+    d.append(h, el("div", null, g.explanation), el("div", "muted", g.in_this_sentence));
+    out.push(d);
+  }
+  if (x.vocab.length) {
+    out.push(el("h2", null, "In this context"));
+    for (const v of x.vocab) {
+      const d = el("div", "g");
+      d.append(el("b", null, v.word), el("span", "w-read", v.reading), el("div", null, v.meaning));
+      out.push(d);
+    }
+  }
+  if (x.notes) { out.push(el("h2", null, "Notes")); out.push(el("p", null, x.notes)); }
+  out.push(el("div", "muted", x._model || ""));
+  $("explain-out").replaceChildren(...out);
+  $("explain-btn").textContent = "Regenerate";
+}
+
+async function explainCurrent() {
+  if (!data || !cfg.explain || cfg.explain === "off" || $("explain-btn").disabled) return;
+  const key = panelKey, i = idx;
+  $("explain-btn").disabled = true;
+  $("explain-btn").textContent = "Explaining…";
+  try {
+    const r = await fetch(`/api/explain/${data.video_id}/${i}`, { method: "POST" });
+    const body = await r.json();
+    if (panelKey !== key) return;
+    if (!r.ok) {
+      $("explain-out").replaceChildren(el("p", "err", body.detail || `Error ${r.status}`));
+      $("explain-btn").textContent = "Try again";
+    } else {
+      renderExplanation(body);
+    }
+  } catch (e) {
+    if (panelKey === key) $("explain-out").replaceChildren(el("p", "err", String(e)));
+  } finally {
+    if (panelKey === key) $("explain-btn").disabled = false;
+  }
+}
+$("explain-btn").onclick = () => explainCurrent();
 
 function setDot(state) { $("status-dot").className = state || ""; }
 
@@ -336,6 +500,8 @@ document.addEventListener("keydown", (e) => {
   else if (k === "ArrowDown") { e.preventDefault(); bumpRate(-1); }
   else if (k === "Escape") stop();
   else if (k === "t" || k === "T") { $("showtext").checked = !$("showtext").checked; saveSettings(); render(); }
+  else if (k === "f" || k === "F") { $("furigana").checked = !$("furigana").checked; saveSettings(); render(); }
+  else if (k === "e" || k === "E") explainCurrent();
 });
 
 window.addEventListener("hashchange", () => { const v = location.hash.slice(1); if (v && v !== data?.video_id) openVideo(v); });

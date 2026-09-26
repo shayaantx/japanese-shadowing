@@ -21,6 +21,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import analyze
+import explain
+
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
 DATA.mkdir(exist_ok=True)
@@ -41,6 +44,8 @@ MAX_SENTENCE = 12.0  # beyond this, split at the next small pause
 
 app = FastAPI()
 jobs: dict[str, dict] = {}
+_explain_lock = threading.Lock()  # guards explanations.json writes
+threading.Thread(target=analyze.build_index, daemon=True).start()
 _model = None
 _model_lock = threading.Lock()
 _work_lock = threading.Lock()  # one transcription at a time; they're CPU/GPU heavy
@@ -234,6 +239,62 @@ def _transcript(vid: str) -> dict:
 @app.get("/api/transcript/{vid}")
 def transcript(vid: str):
     return _transcript(vid)
+
+
+def _sentence(vid: str, idx: int) -> tuple[dict, list[dict]]:
+    sents = _transcript(vid)["sentences"]
+    if not 0 <= idx < len(sents):
+        raise HTTPException(404)
+    return sents[idx], sents
+
+
+@app.get("/api/config")
+def config():
+    return {"explain": explain.BACKEND, "explain_model": explain.model_name(), "dictionary": analyze.dict_status}
+
+
+@app.get("/api/analyze/{vid}/{idx}")
+def analyze_sentence(vid: str, idx: int):
+    s, _ = _sentence(vid, idx)
+    return analyze.analyze(s["text"])
+
+
+def _explanations_file(vid: str) -> Path:
+    return DATA / vid / "explanations.json"
+
+
+def _cached_explanations(vid: str) -> dict:
+    f = _explanations_file(vid)
+    return json.loads(f.read_text()) if f.exists() else {}
+
+
+@app.get("/api/explain/{vid}/{idx}")
+def get_explanation(vid: str, idx: int):
+    _sentence(vid, idx)
+    cached = _cached_explanations(vid).get(str(idx))
+    if not cached:
+        raise HTTPException(404)
+    return cached
+
+
+@app.post("/api/explain/{vid}/{idx}")
+def create_explanation(vid: str, idx: int):
+    s, sents = _sentence(vid, idx)
+    before = [x["text"] for x in sents[max(0, idx - 2) : idx]]
+    after = [x["text"] for x in sents[idx + 1 : idx + 3]]
+    try:
+        result = explain.explain(s["text"], before, after)
+    except explain.ExplainError as e:
+        raise HTTPException(502, str(e))
+    except (json.JSONDecodeError, KeyError) as e:
+        raise HTTPException(502, f"Model returned an unexpected response: {e}")
+    result["_model"] = f"{explain.BACKEND}:{explain.model_name()}"
+    # Saved per sentence, so you only ever pay/wait for each one once.
+    with _explain_lock:
+        all_ = _cached_explanations(vid)
+        all_[str(idx)] = result
+        _explanations_file(vid).write_text(json.dumps(all_, ensure_ascii=False, indent=1))
+    return result
 
 
 @app.get("/media/{vid}")

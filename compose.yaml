@@ -6,9 +6,20 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      # Grammar explanations: local (llama.cpp / any OpenAI-compatible server), claude, or off
+      EXPLAIN_BACKEND: ${EXPLAIN_BACKEND:-local}
+      EXPLAIN_LANGUAGE: ${EXPLAIN_LANGUAGE:-English}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8080/v1}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-5}
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}   # or use the `ant auth login` mount below
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach llama-server running on the host
     volumes:
-      - ./data:/app/data   # downloaded audio + transcripts
+      - ./data:/app/data   # audio, transcripts, explanations, data/dict/ (JMdict)
       - models:/cache      # Whisper models, so they're only downloaded once
+      # For EXPLAIN_BACKEND=claude with your developer-account login (`ant auth login`) instead of a key.
+      # Read-write because the SDK refreshes the token.
+      # - ~/.config/anthropic:/root/.config/anthropic
     restart: unless-stopped
 
 volumes:

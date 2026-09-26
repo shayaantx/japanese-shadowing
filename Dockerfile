@@ -17,9 +17,10 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --python 3.12
+# --locked: fail the build if uv.lock is out of date with pyproject.toml (run `uv lock`).
+RUN uv sync --locked --no-install-project --python 3.12
 
-COPY app.py ./
+COPY app.py analyze.py explain.py ./
 COPY static ./static
 
 ENV PATH="/app/.venv/bin:$PATH" \
